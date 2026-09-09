@@ -1,49 +1,48 @@
-from flask import Flask
-import yfinance as yf, time, datetime, pytz, threading, urllib.request, os, pandas as pd
-app=Flask(__name__)
-TOPIC=os.environ.get("NTFY_TOPIC","stock-hourly-15min-5min")
-IST=pytz.timezone('Asia/Kolkata')
-def send_ntfy(t,m):
- try: urllib.request.urlopen(urllib.request.Request(f"https://ntfy.sh/{TOPIC}",data=m.encode(),method='POST',headers={"Title":t}),timeout=10)
- except: pass
-def is_market_open():
- n=datetime.datetime.now(IST); return n.weekday()<5 and datetime.time(9,15) <= n.time() <= datetime.time(15,30)
-def rsi(s,p=14):
- d=s.diff(); g=d.clip(lower=0); l=-d.clip(upper=0); ag=g.ewm(com=p-1,adjust=False).mean(); al=l.ewm(com=p-1,adjust=False).mean(); return 100-(100/(1+ag/al))
-def get_rsi(sym,i,p):
- try:
-  df=yf.download(sym,period=p,interval=i,progress=False,auto_adjust=True)
-  if len(df)<35: return None
-  return float(rsi(df['Close']).iloc[-1])
- except: return None
-def load_all():
- s=set()
- urls=["https://archives.nseindia.com/content/indices/ind_nifty500list.csv","https://archives.nseindia.com/content/indices/ind_niftyautolist.csv","https://archives.nseindia.com/content/indices/ind_niftybanklist.csv","https://archives.nseindia.com/content/indices/ind_niftyitlist.csv","https://archives.nseindia.com/content/indices/ind_niftypharmalist.csv","https://archives.nseindia.com/content/indices/ind_niftymetallist.csv","https://archives.nseindia.com/content/indices/ind_niftyinfralist.csv","https://archives.nseindia.com/content/indices/ind_niftyfinancelist.csv","https://archives.nseindia.com/content/indices/ind_niftyindiadefencelist.csv"]
- for u in urls:
-  try:
-   df=pd.read_csv(u); s.update([f"{x.strip()}.NS" for x in df['Symbol']])
-  except: pass
- s.update(["HAL.NS","BEL.NS","BDL.NS","MAZDOCK.NS"])
- return list(s)
-ALL=load_all()
-def scan_one(sym):
- try:
-  m=get_rsi(sym,"1mo","10y"); w=get_rsi(sym,"1wk","5y")
-  if not(m and w and m>60 and w>60): return None
-  h=get_rsi(sym,"1h","1y"); f15=get_rsi(sym,"15m","60d")
-  if not(h and f15 and h>60 and f15>60): return None
-  f5=get_rsi(sym,"5m","5d")
-  if not(f5 and 38<=f5<=50): return None
-  send_ntfy(f"{sym} FOUND",f"{sym} M:{m:.1f} W:{w:.1f} H:{h:.1f} 15M:{f15:.1f} 5M:{f5:.1f} Total:{len(ALL)}")
- except: pass
-def loop():
- send_ntfy("Scanner ON",f"{len(ALL)} Stocks - Nifty500+8 Index")
- from concurrent.futures import ThreadPoolExecutor
- while True:
-  if not is_market_open(): time.sleep(300); continue
-  with ThreadPoolExecutor(max_workers=15) as ex: list(ex.map(scan_one,ALL))
-  time.sleep(300)
-threading.Thread(target=loop,daemon=True).start()
-@app.route('/')
-def home(): return f"Total {len(ALL)} Stocks Scanning - {datetime.datetime.now(IST)}"
-if __name__=="__main__": app.run(host='0.0.0.0',port=int(os.environ.get("PORT",10000)))
+import yfinance as yf, requests, os, time
+
+NTFY = os.getenv("NTFY_TOPIC", "stock-hourly-15min-5min")
+
+def rsi(tkr, per, inter):
+    try:
+        df = yf.download(tkr, period=per, interval=inter, progress=False, auto_adjust=True)
+        if len(df) < 20: return 0
+        d = df['Close'].diff()
+        g = d.where(d > 0, 0).ewm(alpha=1/14, min_periods=14).mean()
+        l = -d.where(d < 0, 0).ewm(alpha=1/14, min_periods=14).mean()
+        rs = g / l
+        return float((100 - (100 / (1 + rs))).iloc[-1])
+    except:
+        return 0
+
+def send(msg):
+    try:
+        requests.post(f"https://ntfy.sh/{NTFY}", data=msg.encode(), headers={"Title":"Scanner 34 Index"})
+    except:
+        pass
+
+# INDIA KE SAARE INDEX
+INDICES = ["^NSEI","^NSEBANK","^CNXAUTO","^CNXIT","^CNXFMCG","^CNXPHARMA","^CNXMETAL","^CNXREALTY","^CNXMEDIA","^CNXFINANCE","^CNXPSUBANK","^CNXPVTBANK","^CNXENERGY","^CNXINFRA","^CNXPSE","^CNXCONSUMDUR","^CNXHEALTH","^CNXOILGAS","^CNXCONSUMPTION","^CNXSERVICE","^CNX100","^CNX200","^CNX500"]
+
+STOCKS = ["RELIANCE.NS","TCS.NS","HDFCBANK.NS","INFY.NS","ICICIBANK.NS","SBIN.NS","BHARTIARTL.NS","LT.NS","ITC.NS","KOTAKBANK.NS","AXISBANK.NS","MARUTI.NS","WIPRO.NS","SUNPHARMA.NS","TITAN.NS","TATAMOTORS.NS","M&M.NS","HCLTECH.NS","JSWSTEEL.NS","HINDALCO.NS"]
+
+print("START 34 INDEX SCAN")
+send("Scanner ON - 34 INDEX ACTIVE | 60 Logic | 5M Removed")
+
+for idx in INDICES:
+    rm = rsi(idx,"5y","1mo")
+    rw = rsi(idx,"2y","1wk")
+    rd = rsi(idx,"1y","1d")
+    print(f"{idx} M:{rm:.0f} W:{rw:.0f} D:{rd:.0f}")
+    if rm>60 and rw>60 and rd>60:
+        print(f"PASS INDEX {idx}")
+        for st in STOCKS:
+            sm = rsi(st,"5y","1mo")
+            sw = rsi(st,"2y","1wk")
+            if sm>60 and sw>60:
+                sh = rsi(st,"3mo","60m")
+                s15 = rsi(st,"60d","15m")
+                if sh>60 and s15>60:
+                    msg = f"🔥 {st} | {idx} | M:{sm:.0f} W:{sw:.0f} H:{sh:.0f} 15:{s15:.0f}"
+                    print(msg)
+                    send(msg)
+    time.sleep(0.2)
