@@ -1,62 +1,42 @@
-import threading
-import time
-import requests
+import requests, threading, time
 from flask import Flask
 
 app = Flask(__name__)
 TOPIC = "coindcx-crypto-avais"
-NTFY_URL = "https://ntfy.sh/" + TOPIC
+NTFY_URL = f"https://ntfy.sh/{TOPIC}"
 
 def send(msg):
     try:
-        requests.post(NTFY_URL, data=msg.encode(), headers={"Title": "Scanner"}, timeout=15)
-        print("Sent:", msg)
+        requests.post(NTFY_URL, data=msg.encode('utf-8'), headers={"Title": "Avais Scanner"}, timeout=20)
+        print(f"SENT: {msg}")
     except Exception as e:
-        print("Send fail:", e)
+        print(f"FAILED: {e}")
 
-STOCKS = ["RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS","SBIN.NS"]
-CRYPTO = ["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT"]
-
-def scan_loop():
+def scanner():
     print("FULL STARTED")
-    time.sleep(5)
-    send("Full Scanner Live! 15min - Avais")
+    time.sleep(3)
+    send("✅ FINAL LIVE! Scanner Start Ho Gaya Avais - 15min Active")
     while True:
         try:
-            print("Scanning...")
-            # Simple crypto price check
-            hits = []
-            try:
-                base = "https://api.coindcx.com"
-                end = "/exchange/ticker"
-                url = base + end
-                r = requests.get(url, timeout=10).json()
-                mp = {}
-                for x in r:
-                    try:
-                        mp[x["market"]] = x["last_price"]
-                    except:
-                        pass
-                for c in CRYPTO:
-                    if c in mp:
-                        hits.append(c + " " + str(mp[c]))
-            except Exception as e:
-                print("Crypto err", e)
-
-            if hits:
-                msg = "CRYPTO UPDATE:\n" + "\n".join(hits[:5])
-                send(msg)
-
-            time.sleep(900)
+            r = requests.get("https://api.coindcx.com/exchange/ticker", timeout=15).json()
+            prices = {x['market']: x['last_price'] for x in r if 'market' in x}
+            btc = prices.get('BTCUSDT','N/A')
+            eth = prices.get('ETHUSDT','N/A')
+            sol = prices.get('SOLUSDT','N/A')
+            msg = f"📊 15min Update\nBTC: {btc}\nETH: {eth}\nSOL: {sol}\nTime: {time.strftime('%I:%M %p')}"
+            send(msg)
         except Exception as e:
-            print("Loop err", e)
-            time.sleep(60)
+            print(f"Scan Error: {e}")
+        time.sleep(900) # 15 min
 
-threading.Thread(target=scan_loop, daemon=True).start()
+# Background start
+threading.Thread(target=scanner, daemon=True).start()
 
 @app.route("/")
 def home():
-    return "Live - Avais Scanner Running"
+    # Page khulte hi turant NTFY bhejega - isse guarantee hai
+    send(f"🔔 Wakeup! Tumne site khola - Scanner LIVE hai {time.strftime('%I:%M:%S %p')}")
+    return "Live - Avais Scanner Running - FINAL"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
