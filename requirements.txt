@@ -1,6 +1,4 @@
 Flask
-yfinance
-pytz
-pandas
-lxml
 requests
+yfinance
+pandas
